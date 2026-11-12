@@ -26,6 +26,7 @@ import {
   lineEndAt,
 } from "./engine.ts";
 import { DEFAULT_CONFIG, loadConfig } from "./config.ts";
+import { renderStatusBar } from "./statusbar.ts";
 import {
   nativeEditorCommand,
   vimHistoryCommand,
@@ -1304,29 +1305,12 @@ function beforeSendCleanup(): void {
 
 // ----------------------------------------------------------- mode indicator
 
-function ensureStatusBar(): HTMLElement {
-  document.getElementById("thundervim-status-host")?.remove();
-  let bar = document.getElementById("thundervim-status");
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "thundervim-status";
-    bar.setAttribute("contenteditable", "false");
-    bar.setAttribute("role", "status");
-    (document.documentElement || document.body).appendChild(bar);
-  }
-  if (bar.firstChild) bar.replaceChildren();
-  return bar;
-}
-
 function setStatusText(
   leftText: string,
   rightText: string,
   mode: string,
 ): void {
-  const bar = ensureStatusBar();
-  bar.setAttribute("data-mode", mode);
-  bar.setAttribute("data-left", leftText);
-  bar.setAttribute("data-right", rightText);
+  renderStatusBar(document, leftText, rightText, mode);
 }
 
 function sendModeUpdate(
