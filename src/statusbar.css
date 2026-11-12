@@ -5,15 +5,14 @@
  * cursor and selection/search highlight overlays.
  */
 
-/* Fake block cursor for Normal / Visual mode. `mix-blend-mode: difference`
- * inverts whatever is underneath, so it reads as a classic block cursor on top
- * of the text regardless of theme. It lives on <html>, never in the message. */
+/* Fake block cursor for Normal / Visual mode. Invert the text and background
+ * underneath without changing the editor's background.
+ * It lives on <html>, never in the message. */
 #thundervim-cursor,
 .thundervim-extra-cursor {
     position: fixed;
     z-index: 2147483646;
-    background: #ffffff;
-    mix-blend-mode: difference;
+    backdrop-filter: invert(1);
     pointer-events: none;
     display: none;
 }
