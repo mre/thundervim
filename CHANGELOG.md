@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.9
+
+This release improves navigation in long messages and list formatting.
+
+### Changed
+
+- **Vim motions keep the block cursor visible.** Long-distance jumps such as
+  `gg`, `G`, and counted `G` motions now scroll the compose window, including
+  jumps to an empty final line.
+- **Visual `gq` formats lists with hanging indents.** Wrapped bullet and numbered
+  items remain separate, and continuation text aligns beneath each item body.
+
 ## v0.3.8
 
 This release fixes rich HTML editing and keeps diagnostics out of saved drafts.
