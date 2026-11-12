@@ -1304,8 +1304,6 @@ function beforeSendCleanup(): void {
 
 // ----------------------------------------------------------- mode indicator
 
-const STATUS_MARKER = "\u2063\u200c\u200d\u2063";
-
 function ensureStatusBar(): HTMLElement {
   document.getElementById("thundervim-status-host")?.remove();
   let bar = document.getElementById("thundervim-status");
@@ -1313,14 +1311,10 @@ function ensureStatusBar(): HTMLElement {
     bar = document.createElement("div");
     bar.id = "thundervim-status";
     bar.setAttribute("contenteditable", "false");
-    const left = document.createElement("span");
-    left.className = "tv-left";
-    const right = document.createElement("span");
-    right.className = "tv-right";
-    bar.appendChild(left);
-    bar.appendChild(right);
+    bar.setAttribute("role", "status");
     (document.documentElement || document.body).appendChild(bar);
   }
+  if (bar.firstChild) bar.replaceChildren();
   return bar;
 }
 
@@ -1331,10 +1325,8 @@ function setStatusText(
 ): void {
   const bar = ensureStatusBar();
   bar.setAttribute("data-mode", mode);
-  const left = bar.querySelector<HTMLElement>(".tv-left");
-  const right = bar.querySelector<HTMLElement>(".tv-right");
-  if (left) left.textContent = STATUS_MARKER + leftText;
-  if (right) right.textContent = rightText ? STATUS_MARKER + rightText : "";
+  bar.setAttribute("data-left", leftText);
+  bar.setAttribute("data-right", rightText);
 }
 
 function sendModeUpdate(

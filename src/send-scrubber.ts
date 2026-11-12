@@ -14,8 +14,8 @@ export interface HtmlParser {
 }
 
 const STATUS_MARKER = "\u2063\u200c\u200d\u2063";
-// Thunderbird can serialize an out-of-body status element directly after the
-// message, so remove from the unique marker rather than deleting its whole line.
+// Older builds could serialize their text-bearing status element directly after
+// the message. Keep removing its unique marker without deleting the whole line.
 const MARKED_STATUS_LINE_RE = new RegExp(
   String.raw`(?:\r?\n)*[ \t]*${STATUS_MARKER}[^\r\n]*$`,
   "u",

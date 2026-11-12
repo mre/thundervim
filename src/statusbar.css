@@ -67,7 +67,11 @@
     user-select: none;
     white-space: pre;
 }
-#thundervim-status .tv-right {
+#thundervim-status::before {
+    content: attr(data-left);
+}
+#thundervim-status::after {
+    content: attr(data-right);
     margin-left: 16px;
     opacity: 0.85;
 }
