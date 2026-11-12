@@ -943,24 +943,46 @@ function leaderOf(line: string): string {
   return m ? m[1] : "";
 }
 
-// Reflow one paragraph (array of physical lines) to `width` columns. The
-// first line's leader is applied to every output line; words never split.
+interface ReflowLeaders {
+  first: string;
+  continuation: string;
+}
+
+// A list marker starts a separate paragraph. Wrapped lines use a hanging
+// indent so their text starts below the item body rather than below the marker.
+function listLeadersOf(line: string): ReflowLeaders | null {
+  const outer = leaderOf(line);
+  const marker = /^(?:[-+*]|\d+[.)])[ \t]+/.exec(line.slice(outer.length));
+  if (!marker) return null;
+  return {
+    first: outer + marker[0],
+    continuation: outer + repeatChar(" ", marker[0].length),
+  };
+}
+
+// Reflow one paragraph (array of physical lines) to `width` columns. Words
+// never split; quoted and list-item leaders are preserved.
 function reflowParagraph(para: string[], width: number): string[] {
-  const leader = leaderOf(para[0]);
+  const listLeaders = listLeadersOf(para[0]);
+  const firstLeader = listLeaders?.first ?? leaderOf(para[0]);
+  const continuationLeader = listLeaders?.continuation ?? firstLeader;
   const words: string[] = [];
   for (let i = 0; i < para.length; i++) {
-    const body = para[i].slice(leaderOf(para[i]).length);
-    const toks = body.split(/\s+/);
+    const prefixLength =
+      i === 0 && listLeaders
+        ? listLeaders.first.length
+        : leaderOf(para[i]).length;
+    const toks = para[i].slice(prefixLength).split(/\s+/);
     for (let j = 0; j < toks.length; j++)
       if (toks[j].length) words.push(toks[j]);
   }
   if (!words.length) return para.slice();
   const out: string[] = [];
-  let cur = leader + words[0];
+  let cur = firstLeader + words[0];
   for (let k = 1; k < words.length; k++) {
     if (cur.length + 1 + words[k].length > width) {
       out.push(cur);
-      cur = leader + words[k];
+      cur = continuationLeader + words[k];
     } else {
       cur += " " + words[k];
     }
@@ -987,6 +1009,7 @@ function formatLines(state: State, lo: number, hi: number): void {
     }
     const para: string[] = [];
     while (p <= hi && content[p].replace(/[ \t]/g, "") !== "") {
+      if (para.length && listLeadersOf(content[p])) break;
       para.push(content[p]);
       p++;
     }

@@ -987,6 +987,29 @@ test("visual gq reflows the selected lines", () => {
   assert.strictEqual(s.mode, vim.MODE.NORMAL);
 });
 
+test("visual gq wraps list items with hanging indents", () => {
+  const s = normal("- aaaa bbbb cccc dddd\n- eeee ffff gggg hhhh", 0);
+  s.textwidth = 12;
+  feed(s, ["V", "j", "g", "q"]);
+  assert.strictEqual(
+    s.text,
+    "- aaaa bbbb\n  cccc dddd\n- eeee ffff\n  gggg hhhh",
+  );
+});
+
+test("visual gq preserves numbered items and existing continuations", () => {
+  const s = normal(
+    "1. one two three\n   four five\n2. six seven eight nine",
+    0,
+  );
+  s.textwidth = 14;
+  feed(s, ["V", "j", "j", "g", "q"]);
+  assert.strictEqual(
+    s.text,
+    "1. one two\n   three four\n   five\n2. six seven\n   eight nine",
+  );
+});
+
 test(". repeats gqip", () => {
   const s = normal("aaaa bbbb cccc dddd\n\neeee ffff gggg hhhh", 0);
   s.textwidth = 12;
