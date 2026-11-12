@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A focused Vim Ex command line for composing mail.** Use substitutions on the
+  current line, the full message, or a Visual selection; clear search highlights;
+  inspect or change compose-local `textwidth` and `shiftwidth`; and save, close,
+  save-and-close, or send through Thunderbird. Ex substitutions share the normal
+  editor undo history, and `:wq` always saves a draft rather than sending it.
+
 ## v0.3.10
 
 ### Fixed

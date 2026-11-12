@@ -21,18 +21,31 @@ import {
   computeMatches,
   syncFromEditor,
   rebaseFromEditor,
+  applyTextEdit,
   clampNormal,
   lineStartAt,
   lineEndAt,
 } from "./engine.ts";
 import { DEFAULT_CONFIG, loadConfig } from "./config.ts";
+import { executeEx } from "./ex.ts";
+import { beginExPrompt, updateExPrompt } from "./ex-prompt.ts";
+import {
+  clearHistoryGroups,
+  createHistoryGroups,
+  hasHistoryGroup,
+  recordHistoryGroup,
+  takeHistoryGroup,
+} from "./history-groups.ts";
 import { renderStatusBar } from "./statusbar.ts";
 import {
   nativeEditorCommand,
+  nativeHistoryCommand,
   vimHistoryCommand,
 } from "./shortcuts.ts";
 import type { State, Mode, SearchInfo } from "./engine.ts";
 import type { ThundervimConfig } from "./config.ts";
+import type { ExAction, ExEdit } from "./ex.ts";
+import type { ExPrompt } from "./ex-prompt.ts";
 
 // Diagnostic hook exposed on the window for manual bug reports (Ctrl-Alt-D).
 declare global {
@@ -91,8 +104,13 @@ let lastInsert: { key: string | null; time: number } = { key: null, time: 0 };
 let insertStart: { text: string; cursor: number } | null = null;
 // Active `/` or `?` prompt: { dir: 1|-1, query: string }, or null.
 let searching: { dir: number; query: string } | null = null;
-// Transient status-bar note (e.g. "pattern not found"), shown until next key.
-let searchMsg = "";
+// Active `:` prompt plus the Visual range captured when it was opened.
+let commanding: {
+  prompt: ExPrompt;
+  visualRange?: LinearRange;
+} | null = null;
+// Transient status-bar note, shown until the next command.
+let statusMsg = "";
 // Set when we consume a key; used to cancel the editor's resulting text-input
 // edit. Thunderbird's editor inserts characters via `beforeinput`, which a
 // content-script `keydown` preventDefault() does not cancel on its own.
@@ -102,6 +120,7 @@ let suppressInput = false;
 // rest of the compose session and falls back to the safe split-history path.
 let sharedNativeHistory = true;
 let applyingVimTransaction = false;
+const nativeHistoryGroups = createHistoryGroups();
 // Extra cursor offsets for multi-cursor Insert-mode mirroring. The primary
 // cursor remains `state.cursor` so existing vim motions/operators keep working.
 let extraCursors: number[] = [];
@@ -480,6 +499,7 @@ function nativeTextEquivalent(expected: string, actual: string): boolean {
 function disableNativeHistoryBridge(reason = "unavailable"): void {
   if (!sharedNativeHistory) return;
   sharedNativeHistory = false;
+  clearHistoryGroups(nativeHistoryGroups);
   traceDebug("history:split", { reason });
   if (typeof console !== "undefined" && console.warn) {
     console.warn(
@@ -822,10 +842,10 @@ function syncDom(placeCaret: boolean): void {
   const cur = readBuffer();
   const oldText = cur ? cur.text : "";
   const attemptedNative = sharedNativeHistory && oldText !== state.text;
-  if (
+  const appliedNative =
     oldText !== state.text &&
-    !applyNativeTransaction(oldText, state.text, state.cursor, placeCaret)
-  ) {
+    applyNativeTransaction(oldText, state.text, state.cursor, placeCaret);
+  if (oldText !== state.text && !appliedNative) {
     // Re-read after a failed native attempt in case Gecko partially changed the
     // DOM, then repair it through the existing formatting-preserving writer.
     const latest = readBuffer();
@@ -841,6 +861,7 @@ function syncDom(placeCaret: boolean): void {
   } else if (oldText === state.text && placeCaret) {
     setNativeCaret(state.cursor);
   }
+  if (appliedNative) recordHistoryGroup(nativeHistoryGroups, 1);
   ensureTrailingPad(state.text);
 }
 
@@ -1393,13 +1414,17 @@ function updateBar(): void {
     setBar((searching.dir > 0 ? "/" : "?") + searching.query, "", "search");
     return;
   }
+  if (commanding) {
+    setBar(":" + commanding.prompt.query, "", "command");
+    return;
+  }
   const left =
     "-- " +
     modeLabel() +
     " --" +
     pendingHint() +
     (multiCursorCount() > 1 ? "  " + multiCursorCount() + " cursors" : "") +
-    (searchMsg ? "  " + searchMsg : "");
+    (statusMsg ? "  " + statusMsg : "");
   setBar(left, ruler(), state.mode);
 }
 
@@ -1697,7 +1722,11 @@ function onInputEvent(e: Event): void {
 }
 
 function onInputCommitted(e: Event): void {
-  if (!debugTracing || applyingVimTransaction) return;
+  if (applyingVimTransaction) return;
+  // Toolbar, context-menu, and other native edits can add unknown Gecko undo
+  // transactions without a corresponding keydown in this content script.
+  clearHistoryGroups(nativeHistoryGroups);
+  if (!debugTracing) return;
   const inputType = (e as InputEvent).inputType || "";
   setTimeout(() => traceDebug("input", { inputType }), 0);
 }
@@ -1778,7 +1807,7 @@ function handleInsertEscape(e: KeyboardEvent, ev: NormKey): boolean {
 
 function beginSearch(dir: number): void {
   searching = { dir: dir, query: "" };
-  searchMsg = "";
+  statusMsg = "";
   updateBar();
 }
 
@@ -1802,7 +1831,7 @@ function handleSearchKey(e: KeyboardEvent, ev: NormKey): void {
   swallow(e);
   if (ev.key === "Escape") {
     searching = null;
-    searchMsg = "";
+    statusMsg = "";
     updateBar();
     return;
   }
@@ -1811,7 +1840,7 @@ function handleSearchKey(e: KeyboardEvent, ev: NormKey): void {
     const dir = s.dir;
     searching = null;
     const info = setSearch(state, q, dir);
-    searchMsg = searchMessage(info);
+    statusMsg = searchMessage(info);
     syncDom(false);
     updateBar();
     return;
@@ -1831,6 +1860,136 @@ function handleSearchKey(e: KeyboardEvent, ev: NormKey): void {
     return;
   }
   // Ignore anything else (arrows, function keys) but keep the prompt open.
+}
+
+function beginCommand(): void {
+  const visual = state.mode === MODE.VISUAL || state.mode === MODE.VLINE;
+  const visualRange = visual ? selectionRange() : null;
+  commanding = {
+    prompt: beginExPrompt(visual),
+    ...(visualRange ? { visualRange } : {}),
+  };
+  statusMsg = "";
+  updateBar();
+}
+
+async function dispatchExAction(
+  action: ExAction,
+  successMessage: string,
+): Promise<void> {
+  const runtime = extensionApi()?.runtime;
+  if (!runtime) {
+    statusMsg = "Compose action is unavailable";
+    updateBar();
+    return;
+  }
+  try {
+    await runtime.sendMessage({ type: "thundervim:ex-action", action });
+    if (successMessage) {
+      statusMsg = successMessage;
+      updateBar();
+    }
+  } catch (error) {
+    statusMsg = error instanceof Error ? error.message : String(error);
+    updateBar();
+  }
+}
+
+function syncExEdits(edits: ExEdit[]): void {
+  const intendedText = state.text;
+  let nativeTransactions = 0;
+  for (let index = edits.length - 1; index >= 0; index--) {
+    const edit = edits[index];
+    const current = readBuffer();
+    if (!current) break;
+    const nextText =
+      current.text.slice(0, edit.start) +
+      edit.replacement +
+      current.text.slice(edit.end);
+    const attemptedNative = sharedNativeHistory;
+    const appliedNative = applyNativeTransaction(
+      current.text,
+      nextText,
+      state.cursor,
+      false,
+    );
+    if (appliedNative) nativeTransactions++;
+    else {
+      const latest = readBuffer();
+      applyEdit(
+        latest ? latest.text : current.text,
+        nextText,
+        state.cursor,
+        false,
+      );
+      if (attemptedNative) setNativeCaret(state.cursor);
+    }
+    // applyNativeTransaction can adopt Gecko's NBSP spelling for an
+    // intermediate edit. The Ex result remains authoritative until all spans
+    // have been applied.
+    state.text = intendedText;
+  }
+
+  const finalBuffer = readBuffer();
+  if (finalBuffer && nativeTextEquivalent(intendedText, finalBuffer.text)) {
+    state.text = finalBuffer.text;
+  } else if (finalBuffer && finalBuffer.text !== intendedText) {
+    applyEdit(finalBuffer.text, intendedText, state.cursor, false);
+  }
+  if (sharedNativeHistory && nativeTransactions > 0) {
+    recordHistoryGroup(nativeHistoryGroups, nativeTransactions);
+  }
+  ensureTrailingPad(state.text);
+  setNativeCaret(state.cursor);
+}
+
+function executeCommand(command: string, visualRange?: LinearRange): void {
+  const result = executeEx(command, {
+    text: state.text,
+    cursor: state.cursor,
+    textwidth: state.textwidth,
+    shiftwidth: state.shiftwidth,
+    hlsearch: state.hlsearch,
+    ...(visualRange ? { visualRange } : {}),
+  });
+  if (!result.ok) {
+    statusMsg = result.message;
+    updateBar();
+    return;
+  }
+
+  const textChanged = result.text !== state.text;
+  applyTextEdit(state, result.text, result.cursor);
+  state.textwidth = result.textwidth;
+  state.shiftwidth = result.shiftwidth;
+  state.hlsearch = result.hlsearch;
+  extraCursors = [];
+  statusMsg = result.action ? "" : result.message;
+  if (textChanged && result.edits.length > 0) syncExEdits(result.edits);
+  else syncDom(false);
+  updateBar();
+  if (textChanged) scrollCursorIntoView();
+  if (result.action) {
+    void dispatchExAction(result.action, result.message);
+  }
+}
+
+function handleCommandKey(e: KeyboardEvent, ev: NormKey): void {
+  const active = commanding;
+  if (!active) return;
+  swallow(e);
+  const update = updateExPrompt(active.prompt, ev);
+  if (update.kind === "continue") {
+    active.prompt = update.prompt;
+    updateBar();
+    return;
+  }
+  commanding = null;
+  if (update.kind === "cancel") {
+    updateBar();
+    return;
+  }
+  executeCommand(update.command, active.visualRange);
 }
 
 function toggleEnabled(): void {
@@ -1902,12 +2061,21 @@ function runNativeHistory(command: "undo" | "redo", count: number): void {
   traceDebug("native-history:start", { command, count });
   applyingVimTransaction = true;
   try {
-    for (let i = 0; i < count; i++) {
-      if (!document.execCommand(command)) break;
+    let failed = false;
+    for (let group = 0; group < count && !failed; group++) {
+      const transactions = takeHistoryGroup(nativeHistoryGroups, command);
+      for (let transaction = 0; transaction < transactions; transaction++) {
+        if (!document.execCommand(command)) {
+          clearHistoryGroups(nativeHistoryGroups);
+          failed = true;
+          break;
+        }
+      }
     }
   } catch {
     // A failed native history command is a no-op. Once native Vim edits have
     // succeeded, falling back to the engine stack would traverse a stale copy.
+    clearHistoryGroups(nativeHistoryGroups);
   } finally {
     applyingVimTransaction = false;
   }
@@ -2008,17 +2176,36 @@ function onKeydown(e: KeyboardEvent): void {
     return;
   }
 
-  // The search prompt owns every key while it is open.
+  // Search and command-line prompts own every key while they are open.
   if (searching) {
     handleSearchKey(e, ev);
+    return;
+  }
+  if (commanding) {
+    handleCommandKey(e, ev);
     return;
   }
 
   // Reconcile native editor commands afterward so Gecko's independent undo
   // manager cannot leave stale Vim snapshots behind. Other primary-modifier
   // shortcuts (Send, Save, Find, etc.) pass through without mode side effects.
+  const nativeHistory = nativeHistoryCommand(ev, isMacOS());
+  if (
+    sharedNativeHistory &&
+    nativeHistory &&
+    state.mode !== MODE.INSERT &&
+    hasHistoryGroup(nativeHistoryGroups, nativeHistory)
+  ) {
+    swallow(e);
+    runNativeHistory(nativeHistory, 1);
+    return;
+  }
+
   const nativeCommand = nativeEditorCommand(ev, isMacOS());
   if (nativeCommand) {
+    // Untracked native formatting, clipboard, and history boundaries are not
+    // observable precisely enough to retain transaction widths safely.
+    clearHistoryGroups(nativeHistoryGroups);
     const vis = state.mode === MODE.VISUAL || state.mode === MODE.VLINE;
     if (vis) {
       const sr = selectionRange();
@@ -2093,8 +2280,18 @@ function onKeydown(e: KeyboardEvent): void {
     beginSearch(ev.key === "/" ? 1 : -1);
     return;
   }
-  // A fresh action clears any lingering search message.
-  searchMsg = "";
+  if (
+    (state.mode === MODE.NORMAL ||
+      state.mode === MODE.VISUAL ||
+      state.mode === MODE.VLINE) &&
+    ev.key === ":"
+  ) {
+    swallow(e);
+    beginCommand();
+    return;
+  }
+  // A fresh action clears any lingering status message.
+  statusMsg = "";
 
   // Normal / Visual: the engine's state is authoritative here (we are the only
   // thing editing the buffer), so we do NOT re-read the caret from the DOM per
@@ -2110,7 +2307,7 @@ function onKeydown(e: KeyboardEvent): void {
   swallow(e);
   // n/N surface a wrap / not-found note in the status bar.
   if (ev.key === "n" || ev.key === "N") {
-    searchMsg = searchMessage(state.lastSearchInfo);
+    statusMsg = searchMessage(state.lastSearchInfo);
   }
   // A command just entered Insert mode: snapshot the buffer so the typed text
   // can be recovered for dot-repeat when Insert mode exits. handleKey may have
@@ -2122,6 +2319,7 @@ function onKeydown(e: KeyboardEvent): void {
     insertStart = { text: state.text, cursor: state.cursor };
   }
   syncDom(enteredInsert);
+  if (enteredInsert) clearHistoryGroups(nativeHistoryGroups);
   updateBar();
   if (!enteredInsert) scrollCursorIntoView();
   traceDebug("vim-command:end", {

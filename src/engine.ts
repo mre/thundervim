@@ -16,6 +16,7 @@
 //   handleKey(state, ev)           -> { state, handled }
 //   syncFromEditor(state, text, c) -> state   (call when returning from Insert)
 //   rebaseFromEditor(state, text, c) -> state (external text edit; resets history)
+//   applyTextEdit(state, text, c)    -> state (undoable adapter-originated edit)
 //
 // `ev` is a normalized key: { key, shift, ctrl, alt, meta }.
 
@@ -1236,6 +1237,26 @@ function resetPending(state: State): void {
     textobj: null,
     find: null,
   };
+}
+
+// Apply a text change produced by an adapter-level command (for example an Ex
+// substitution) while preserving the engine's undo semantics.
+export function applyTextEdit(
+  state: State,
+  text: string,
+  cursor: number,
+): State {
+  if (text !== state.text) pushUndo(state);
+  state.text = text;
+  state.cursor = clampNormal(text, cursor);
+  state.mode = MODE.NORMAL;
+  state.anchor = null;
+  state.desiredCol = null;
+  state._hadCount = false;
+  state._seq = [];
+  state._insertPending = null;
+  resetPending(state);
+  return state;
 }
 
 // Apply a resolved motion object as an operator target (if one is pending) or

@@ -91,7 +91,8 @@
     background: #4a4a4a;
     color: #d0d0d0;
 }
-#thundervim-status[data-mode="search"] {
+#thundervim-status[data-mode="search"],
+#thundervim-status[data-mode="command"] {
     background: #202225;
     color: #ffd54f;
 }

@@ -1,7 +1,16 @@
+import { runExAction } from "./ex-actions.ts";
 import { scrubDetails } from "./send-scrubber.ts";
+import type { ExAction } from "./ex.ts";
 import type { ComposeDetails } from "./send-scrubber.ts";
 
-type Mode = "insert" | "normal" | "visual" | "visual-line" | "off" | "search";
+type Mode =
+  | "insert"
+  | "normal"
+  | "visual"
+  | "visual-line"
+  | "off"
+  | "search"
+  | "command";
 
 interface ModeMessage {
   type: "thundervim:mode";
@@ -22,6 +31,11 @@ interface DebugDumpRequest {
 
 interface DebugDumpResponse {
   text: string;
+}
+
+interface ExActionMessage {
+  type: "thundervim:ex-action";
+  action: ExAction;
 }
 
 interface BrowserRuntime {
@@ -55,6 +69,7 @@ interface ComposeActionApi {
 
 interface TabsApi {
   sendMessage(tabId: number, message: unknown): Promise<unknown>;
+  remove(tabId: number): Promise<unknown>;
 }
 
 interface ExtensionWindowsApi {
@@ -67,6 +82,14 @@ interface ExtensionWindowsApi {
 }
 
 interface ComposeApi {
+  saveMessage(
+    tabId: number,
+    options: { mode: "draft" },
+  ): Promise<unknown>;
+  sendMessage(
+    tabId: number,
+    options: { mode: "default" },
+  ): Promise<unknown>;
   onBeforeSend?: {
     addListener(
       listener: (
@@ -116,6 +139,17 @@ function isDebugDumpRequest(message: unknown): message is DebugDumpRequest {
   );
 }
 
+function isExActionMessage(message: unknown): message is ExActionMessage {
+  return (
+    isMessage(message) &&
+    message.type === "thundervim:ex-action" &&
+    (message.action === "save" ||
+      message.action === "quit" ||
+      message.action === "save-quit" ||
+      message.action === "send")
+  );
+}
+
 function isModeMessage(message: unknown): message is ModeMessage {
   return (
     isMessage(message) &&
@@ -138,6 +172,8 @@ function badgeFor(mode: Mode): string {
       return "L";
     case "search":
       return "/";
+    case "command":
+      return ":";
     case "off":
       return "";
   }
@@ -151,6 +187,7 @@ function colorFor(mode: Mode): string {
     case "visual-line":
       return "#6a1b9a";
     case "search":
+    case "command":
       return "#b07d00";
     case "off":
       return "#606060";
@@ -184,6 +221,19 @@ let nextDebugDumpId = 0;
 extensionApi()?.runtime.onMessage.addListener(async (message, sender) => {
   const api = extensionApi();
   if (!api) return;
+
+  if (isExActionMessage(message)) {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined || !api.compose || !api.tabs) {
+      throw new Error("Compose action is unavailable");
+    }
+    await runExAction(
+      { compose: api.compose, tabs: api.tabs },
+      tabId,
+      message.action,
+    );
+    return;
+  }
 
   if (isDebugDumpMessage(message)) {
     const id = `${Date.now()}-${++nextDebugDumpId}`;

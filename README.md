@@ -80,6 +80,7 @@ misbehaves on a complex message, please file an issue.
 | Case | `~` (with count), operators `gu` / `gU` / `g~` with motions/text objects (`gUiw`, `guap`), line forms `guu` / `gUU` / `g~~`, and Visual `u` / `U` / `~` |
 | Repeat change | `.` (repeats the last change, including typed text; a count substitutes the recorded one) |
 | Search | `/pat` `?pat` (smartcase), `*` / `#` (word under cursor), `n` / `N` to step; matches highlight while typing and persist until `Esc` |
+| Ex commands | `:w`, `:q`, `:wq`, `:send`, `:noh`, `:set`, and substitutions with `:s`, `:%s`, or a Visual range |
 | Undo / redo | `u` or `Cmd-Z` / `Ctrl-Z` to undo; `Ctrl-r`, `Cmd-Shift-Z`, or `Ctrl-Y` to redo (shared Thunderbird history) |
 | Visual | `v`, `V`, then `d` / `c` / `y` on the selection |
 | Multi-cursor | macOS: `Cmd-Option-Down` / `Cmd-Option-Up`; Windows/Linux: `Ctrl-Alt-Down` / `Ctrl-Alt-Up`. Adds cursors below / above; vim motions and Insert-mode typing apply to all cursors; `Esc` in Normal mode clears extra cursors |
@@ -89,6 +90,33 @@ misbehaves on a complex message, please file an issue.
 Counts combine with operators (e.g. `2dd`, `d3w`). Yank/paste use an internal
 register, so `y` / `p` never touch your system clipboard. **Nothing you edit
 leaves your machine.**
+
+### Ex commands
+
+Press `:` in Normal mode to open the command line. From Visual mode, `:`
+prefills `:'<,'>` so substitutions apply to every selected line.
+
+| Command | Effect |
+| --- | --- |
+| `:s/pattern/replacement/` | Replace the first match on the current line |
+| `:s/pattern/replacement/g` | Replace every match on the current line |
+| `:%s/pattern/replacement/g` | Replace matches throughout the message |
+| `:'<,'>s/pattern/replacement/g` | Replace matches on the visually selected lines |
+| `:noh` / `:nohlsearch` | Clear search highlighting |
+| `:set tw=80` / `:set textwidth=80` | Set reflow width for this compose window |
+| `:set sw=2` / `:set shiftwidth=2` | Set indentation width for this compose window |
+| `:set`, `:set tw?`, `:set sw?` | Show current compose-local settings |
+| `:w` / `:write` | Save the message as a draft |
+| `:q` / `:quit` | Close the compose tab using Thunderbird's normal close flow |
+| `:wq` | Save the draft, then close it; this never sends the message |
+| `:send` | Send using Thunderbird's normal online/offline behavior |
+
+Substitution patterns use JavaScript regular-expression syntax. The `g` and `i`
+flags are supported, `/` can be escaped as `\/`, another punctuation delimiter
+such as `#` may be used, and replacements accept Vim-style `&` and `\\1`
+references. Ex substitutions participate in the same undo history as other Vim
+and native editor changes. `textwidth` and `shiftwidth` changes are local to the
+current compose window; use Preferences to change their defaults.
 
 ## Modes and the mode indicator
 

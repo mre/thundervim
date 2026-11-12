@@ -29,6 +29,20 @@ export function nativeEditorCommand(
 // Vim's history keys are routed to Gecko when the compose adapter is using the
 // native editor's undo manager. Mode and pending-command checks remain the
 // adapter's responsibility because plain `u` is also a Visual command.
+export function nativeHistoryCommand(
+  ev: ShortcutKey,
+  isMac: boolean,
+): VimHistoryCommand | null {
+  const primary = isMac ? ev.meta : ev.ctrl;
+  const secondary = isMac ? ev.ctrl : ev.meta;
+  if (!primary || secondary || ev.alt) return null;
+
+  const key = ev.key.toLowerCase();
+  if (key === "z") return ev.shift ? "redo" : "undo";
+  if (!isMac && key === "y") return "redo";
+  return null;
+}
+
 export function vimHistoryCommand(
   ev: ShortcutKey,
 ): VimHistoryCommand | null {

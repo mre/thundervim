@@ -1189,3 +1189,22 @@ test("Escape clears the search highlight flag", () => {
   feed(s, ["<Esc>"]);
   assert.strictEqual(s.hlsearch, false);
 });
+
+test("an external text edit is one undoable Normal-mode change", () => {
+  const s = normal("one two", 4);
+  s.mode = vim.MODE.VISUAL;
+  s.anchor = 0;
+  vim.applyTextEdit(s, "one TWO", 4);
+  assert.strictEqual(s.text, "one TWO");
+  assert.strictEqual(s.mode, vim.MODE.NORMAL);
+  assert.strictEqual(s.anchor, null);
+  feed(s, "u");
+  assert.strictEqual(s.text, "one two");
+  assert.strictEqual(s.cursor, 4);
+});
+
+test("an unchanged external text edit does not add an undo entry", () => {
+  const s = normal("one two", 4);
+  vim.applyTextEdit(s, "one two", 4);
+  assert.strictEqual(s.undoStack.length, 0);
+});

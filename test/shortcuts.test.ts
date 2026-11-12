@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert";
 import {
   nativeEditorCommand,
+  nativeHistoryCommand,
   vimHistoryCommand,
   type ShortcutKey,
 } from "../src/shortcuts.ts";
@@ -33,6 +34,30 @@ test("recognizes native undo and redo shortcuts", () => {
     "history",
   );
   assert.strictEqual(nativeEditorCommand(key("y", { ctrl: true }), false), "history");
+});
+
+test("identifies the direction of native history shortcuts", () => {
+  assert.strictEqual(
+    nativeHistoryCommand(key("z", { meta: true }), true),
+    "undo",
+  );
+  assert.strictEqual(
+    nativeHistoryCommand(key("z", { meta: true, shift: true }), true),
+    "redo",
+  );
+  assert.strictEqual(
+    nativeHistoryCommand(key("z", { ctrl: true }), false),
+    "undo",
+  );
+  assert.strictEqual(
+    nativeHistoryCommand(key("z", { ctrl: true, shift: true }), false),
+    "redo",
+  );
+  assert.strictEqual(
+    nativeHistoryCommand(key("y", { ctrl: true }), false),
+    "redo",
+  );
+  assert.strictEqual(nativeHistoryCommand(key("y", { meta: true }), true), null);
 });
 
 test("reserves Ctrl-r for Vim redo", () => {
