@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.10
+
+### Fixed
+
+- **The status line no longer appears in Markdown Here Revival previews.** Its
+  labels are rendered without DOM text, so whole-document HTML consumers cannot
+  mistake Thundervim UI for message content.
+
 ## v0.3.9
 
 This release improves navigation in long messages and list formatting.
