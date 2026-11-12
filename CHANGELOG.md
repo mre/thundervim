@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.4.0
+
+This release adds a focused Vim Ex command line for composing mail.
 
 ### Added
 
